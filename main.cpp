@@ -1,5 +1,6 @@
 #include <portaudio.h>
 #include <stdio.h>
+#include "dsp.h"
 
 #define NUM_SECONDS     (5)
 #define SAMPLE_RATE  (48000)
@@ -43,7 +44,6 @@ static int record_callback(const void *in_buffer, void *out_buffer,
     buff->index += frames;
     return result;
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -103,6 +103,8 @@ int main(int argc, char *argv[])
         fclose(fid);
         printf("Wrote data to 'recorded.raw'\n");
     }
+
+    bandpass_fir(0.0, 0.1, 0.001);
 
 done:
     Pa_Terminate();

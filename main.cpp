@@ -7,25 +7,18 @@
 #define FRAMES_PER_BUFFER (512)
 #define SAMPLE_SILENCE  (0.0f)
 
-struct Buffer
-{
-    int index;
-    int max_index;
-    float *samples;
-};
-
 static int record_callback(const void *in_buffer, void *out_buffer,
                            unsigned long frames_per_buffer,
                            const PaStreamCallbackTimeInfo* time_info,
                            PaStreamCallbackFlags status_flags,
                            void *user_data)
 {
-    Buffer *buff = (Buffer*)user_data;
+    buffer_t *buff = (buffer_t*)user_data;
     const float *rptr = (const float*)in_buffer;
-    float *wptr = &buff->samples[buff->index];
+    float *wptr = &buff->ptr[buff->ind];
     int frames = frames_per_buffer;
     int result = paContinue;
-    unsigned long frames_left = buff->max_index - buff->index;
+    unsigned long frames_left = buff->size - buff->ind;
 
     if(frames_left < frames_per_buffer) {
         frames = frames_left;
@@ -41,19 +34,16 @@ static int record_callback(const void *in_buffer, void *out_buffer,
             *wptr++ = *rptr++;
         }
     }
-    buff->index += frames;
+    buff->ind += frames;
     return result;
 }
 
 int main(int argc, char *argv[])
 {
-    Buffer buff;
     FILE *fid = NULL;
 
     int totalFrames = NUM_SECONDS * SAMPLE_RATE;
-    buff.max_index = totalFrames;
-    buff.index = 0;
-    buff.samples = new float[totalFrames]();
+    buffer_t buff(totalFrames);
 
     PaError err = Pa_Initialize();
     if (err != paNoError) {
@@ -87,7 +77,7 @@ int main(int argc, char *argv[])
 
     while ((err = Pa_IsStreamActive(stream)) == 1) {
         Pa_Sleep(1000);
-        printf("index = %d\n", buff.index );
+        printf("index = %d\n", buff.ind);
         fflush(stdout);
     }
     if (err < 0) goto done;
@@ -99,18 +89,15 @@ int main(int argc, char *argv[])
     if (fid == NULL) {
         printf("Could not open file.");
     } else {
-        fwrite(buff.samples, sizeof(float), totalFrames, fid);
+        fwrite(buff.ptr, sizeof(float), totalFrames, fid);
         fclose(fid);
         printf("Wrote data to 'recorded.raw'\n");
     }
 
-    bandpass_fir(0.0, 0.1, 0.001);
+    // bandpass_fir(NULL, NULL, 0.0, 0.1, 0.001);
 
 done:
     Pa_Terminate();
-    if (buff.samples) {
-        delete[] buff.samples;
-    }
     if (err != paNoError) {
         fprintf(stderr, "An error occurred while using the portaudio stream\n");
         fprintf(stderr, "Error number: %d\n", err);

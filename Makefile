@@ -4,7 +4,7 @@ LDFLAGS = -L/opt/src/portaudio/lib/.libs -L/opt/src/csdr -lportaudio -lcsdr -lff
 
 all: $(PROGNAME)
 
-$(PROGNAME): main.cpp dsp.cpp
+$(PROGNAME): main.cpp dsp.cpp dsp.h
 	$(CXX) main.cpp dsp.cpp -o $(PROGNAME) $(CFLAGS) $(LDFLAGS)
 
 clean:

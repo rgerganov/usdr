@@ -1,10 +1,11 @@
 #include "dsp.h"
 #include <malloc.h>
+#include <string.h>
 extern "C" {
 	#include <libcsdr.h>
 }
 
-void bandpass_fir(float low_cut, float high_cut, float transition_bw)
+void bandpass_fir(buffer_t *in, buffer_t *out, float low_cut, float high_cut, float transition_bw)
 {
 	window_t window = WINDOW_DEFAULT;
 	//calculate the FFT size and the other length parameters
@@ -21,7 +22,7 @@ void bandpass_fir(float low_cut, float high_cut, float transition_bw)
 	complexf* taps_fft=(complexf*)malloc(sizeof(complexf)*fft_size);
 	FFT_PLAN_T* plan_taps = make_fft_c2c(fft_size, taps, taps_fft, 1, 0); //forward, don't benchmark (we need this only once)
 
-	//make FFT plans for continously processing the input
+	//make FFT plans for continuously processing the input
 	complexf* input = (complexf*) fft_malloc(fft_size*sizeof(complexf));
 	complexf* input_fourier = (complexf*) fft_malloc(fft_size*sizeof(complexf));
 	FFT_PLAN_T* plan_forward = make_fft_c2c(fft_size, input, input_fourier, 1, 1); //forward, do benchmark
@@ -37,21 +38,20 @@ void bandpass_fir(float low_cut, float high_cut, float transition_bw)
 
 	for(int i=input_size;i<fft_size;i++) iof(input,i)=qof(input,i)=0; //we pre-pad the input buffer with zeros
 
-	for(;;)
-	{
-		//make the filter
-		fprintf(stderr,"bandpass_fir_fft_cc: filter initialized, low_cut = %g, high_cut = %g\n",low_cut,high_cut);
-		firdes_bandpass_c(taps, taps_length, low_cut, high_cut, window);
-		fft_execute(plan_taps);
+    //make the filter
+    fprintf(stderr,"bandpass_fir_fft_cc: filter initialized, low_cut = %g, high_cut = %g\n",low_cut,high_cut);
+    firdes_bandpass_c(taps, taps_length, low_cut, high_cut, window);
+    fft_execute(plan_taps);
 
-		for(int odd=0;;odd=!odd) //the processing loop
-		{
-			fread(input, sizeof(complexf), input_size, stdin);
-			FFT_PLAN_T* plan_inverse = (odd)?plan_inverse_2:plan_inverse_1;
-			FFT_PLAN_T* plan_contains_last_overlap = (odd)?plan_inverse_1:plan_inverse_2; //the other
-			complexf* last_overlap = (complexf*)plan_contains_last_overlap->output + input_size; //+ fft_size - overlap_length;
-			apply_fir_fft_cc (plan_forward, plan_inverse, taps_fft, last_overlap, overlap_length);
-			fwrite(plan_inverse->output, sizeof(complexf), input_size, stdout);
-		}
-	}
+    for(int odd=0; in->ind + input_size < in->size; odd=!odd) //the processing loop
+    {
+        memcpy(input, in->ptr, input_size * sizeof(complexf));
+        in->ptr += input_size * 2;
+        FFT_PLAN_T* plan_inverse = (odd)?plan_inverse_2:plan_inverse_1;
+        FFT_PLAN_T* plan_contains_last_overlap = (odd)?plan_inverse_1:plan_inverse_2; //the other
+        complexf* last_overlap = (complexf*)plan_contains_last_overlap->output + input_size; //+ fft_size - overlap_length;
+        apply_fir_fft_cc (plan_forward, plan_inverse, taps_fft, last_overlap, overlap_length);
+        memcpy(out->ptr, plan_inverse->output, input_size * sizeof(complexf));
+        out->ptr += input_size * 2;
+    }
 }

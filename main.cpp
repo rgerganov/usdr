@@ -1,5 +1,6 @@
 #include <portaudio.h>
 #include <stdio.h>
+#include <SDL2/SDL.h>
 #include "dsp.h"
 
 #define NUM_SECONDS     (5)
@@ -38,12 +39,21 @@ static int record_callback(const void *in_buffer, void *out_buffer,
     return result;
 }
 
-int main(int argc, char *argv[])
+void save_to_file(buffer_t *buff)
 {
-    FILE *fid = NULL;
+    FILE *fid = fopen("recorded.raw", "wb");
+    if (fid == NULL) {
+        printf("Could not open file.");
+    } else {
+        fwrite(buff->ptr, sizeof(float), buff->size, fid);
+        fclose(fid);
+        printf("Wrote data to 'recorded.raw'\n");
+    }
+}
 
-    int totalFrames = NUM_SECONDS * SAMPLE_RATE;
-    buffer_t buff(totalFrames);
+int capture_audio()
+{
+    buffer_t buff(NUM_SECONDS * SAMPLE_RATE);
 
     PaError err = Pa_Initialize();
     if (err != paNoError) {
@@ -85,14 +95,7 @@ int main(int argc, char *argv[])
     err = Pa_CloseStream(stream);
     if (err != paNoError) goto done;
 
-    fid = fopen("recorded.raw", "wb");
-    if (fid == NULL) {
-        printf("Could not open file.");
-    } else {
-        fwrite(buff.ptr, sizeof(float), totalFrames, fid);
-        fclose(fid);
-        printf("Wrote data to 'recorded.raw'\n");
-    }
+    save_to_file(&buff);
 
     // bandpass_fir(NULL, NULL, 0.0, 0.1, 0.001);
 
@@ -105,4 +108,50 @@ done:
         err = 1;
     }
     return err;
+}
+
+int main(int argc, char *argv[])
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_Window *window = SDL_CreateWindow("uSDR", SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_SHOWN);
+    if (window == NULL) {
+        fprintf(stderr, "CreateWindow Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (renderer == NULL) {
+        fprintf(stderr, "CreateRenderer Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_Event e;
+    bool quit = false;
+    int frames_count = 0;
+    int start = SDL_GetTicks();
+
+    while (!quit) {
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) {
+                quit = true;
+            } else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r) {
+                //capture_audio();
+            }
+        }
+        float fps = frames_count / ((SDL_GetTicks() - start) / 1000.f);
+        printf("fps = %.4f     \r", fps); fflush(stdout);
+        SDL_RenderClear(renderer);
+        SDL_RenderPresent(renderer);
+        ++frames_count;
+    }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 0;
 }

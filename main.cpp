@@ -2,11 +2,15 @@
 #include <stdio.h>
 #include <SDL2/SDL.h>
 #include "dsp.h"
+#include "pa_ringbuffer.h"
 
 #define NUM_SECONDS     (5)
 #define SAMPLE_RATE  (48000)
 #define FRAMES_PER_BUFFER (512)
 #define SAMPLE_SILENCE  (0.0f)
+
+float *audio_data;
+PaUtilRingBuffer rb_audio;
 
 static int record_callback(const void *in_buffer, void *out_buffer,
                            unsigned long frames_per_buffer,

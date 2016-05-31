@@ -4,8 +4,8 @@ LDFLAGS = -L/opt/src/portaudio/lib/.libs -L/opt/src/csdr -lportaudio -lcsdr -lff
 
 all: $(PROGNAME)
 
-$(PROGNAME): main.cpp dsp.cpp dsp.h
-	$(CXX) main.cpp dsp.cpp -o $(PROGNAME) $(CFLAGS) $(LDFLAGS)
+$(PROGNAME): main.cpp dsp.cpp dsp.h pa_ringbuffer.cpp pa_ringbuffer.h pa_memorybarrier.h
+	$(CXX) main.cpp dsp.cpp pa_ringbuffer.cpp -o $(PROGNAME) $(CFLAGS) $(LDFLAGS)
 
 clean:
 	rm -f $(PROGNAME) *.o

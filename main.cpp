@@ -45,25 +45,20 @@ static int record_callback(const void *in_buffer, void *out_buffer,
 
 void save_to_file(buffer_t *buff)
 {
-    FILE *fid = fopen("recorded.raw", "wb");
+    char fname[256];
+    sprintf(fname, "record-%d.raw", SDL_GetTicks());
+    FILE *fid = fopen(fname, "wb");
     if (fid == NULL) {
         printf("Could not open file.");
     } else {
-        fwrite(buff->ptr, sizeof(float), buff->size, fid);
+        fwrite(buff->ptr, sizeof(float), buff->ind, fid);
         fclose(fid);
-        printf("Wrote data to 'recorded.raw'\n");
+        printf("Wrote data to %s\n", fname);
     }
 }
 
-int capture_audio()
+bool start_capture(PaStream **stream, buffer_t *buff)
 {
-    buffer_t buff(NUM_SECONDS * SAMPLE_RATE);
-
-    PaError err = Pa_Initialize();
-    if (err != paNoError) {
-        goto done;
-    }
-
     PaStreamParameters inputParameters;
     // inputParameters.device = Pa_GetDefaultInputDevice();
     inputParameters.device = 3;
@@ -71,47 +66,34 @@ int capture_audio()
     inputParameters.sampleFormat = paFloat32;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
     inputParameters.hostApiSpecificStreamInfo = NULL;
+    buff->ind = 0;
 
-    PaStream* stream;
-    err = Pa_OpenStream(&stream,
-                        &inputParameters,
-                        NULL,
-                        SAMPLE_RATE,
-                        FRAMES_PER_BUFFER,
-                        paClipOff,
-                        record_callback,
-                        &buff);
-    if (err != paNoError) goto done;
-
-    err = Pa_StartStream(stream);
-    if (err != paNoError) goto done;
-
-    printf("\n=== Now recording!! Please speak into the microphone. ===\n");
-    fflush(stdout);
-
-    while ((err = Pa_IsStreamActive(stream)) == 1) {
-        Pa_Sleep(1000);
-        printf("index = %d\n", buff.ind);
-        fflush(stdout);
+    PaError err = Pa_OpenStream(stream,
+                                &inputParameters,
+                                NULL,
+                                SAMPLE_RATE,
+                                FRAMES_PER_BUFFER,
+                                paClipOff,
+                                record_callback,
+                                buff);
+    if (err == paNoError) {
+        err = Pa_StartStream(*stream);
     }
-    if (err < 0) goto done;
-
-    err = Pa_CloseStream(stream);
-    if (err != paNoError) goto done;
-
-    save_to_file(&buff);
-
-    // bandpass_fir(NULL, NULL, 0.0, 0.1, 0.001);
-
-done:
-    Pa_Terminate();
     if (err != paNoError) {
-        fprintf(stderr, "An error occurred while using the portaudio stream\n");
-        fprintf(stderr, "Error number: %d\n", err);
-        fprintf(stderr, "Error message: %s\n", Pa_GetErrorText(err));
-        err = 1;
+        fprintf(stderr, "start_capture error: %s\n", Pa_GetErrorText(err));
+        return false;
     }
-    return err;
+    return true;
+}
+
+void stop_capture(PaStream *stream, buffer_t *buff)
+{
+    PaError err = Pa_CloseStream(stream);
+    if (err != paNoError) {
+        fprintf(stderr, "stop_capture error: %s\n", Pa_GetErrorText(err));
+        return;
+    }
+    save_to_file(buff);
 }
 
 int main(int argc, char *argv[])
@@ -120,22 +102,28 @@ int main(int argc, char *argv[])
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
         return 1;
     }
-
     SDL_Window *window = SDL_CreateWindow("uSDR", SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_SHOWN);
     if (window == NULL) {
         fprintf(stderr, "CreateWindow Error: %s\n", SDL_GetError());
         return 1;
     }
-
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (renderer == NULL) {
         fprintf(stderr, "CreateRenderer Error: %s\n", SDL_GetError());
         return 1;
     }
+    PaError err = Pa_Initialize();
+    if (err != paNoError) {
+        fprintf(stderr, "PaInit error: %s\n", Pa_GetErrorText(err));
+        return 1;
+    }
 
     SDL_Event e;
     bool quit = false;
+    bool recording = false;
+    PaStream *stream;
+    buffer_t buff(NUM_SECONDS * SAMPLE_RATE);
     int frames_count = 0;
     int start = SDL_GetTicks();
 
@@ -144,7 +132,18 @@ int main(int argc, char *argv[])
             if (e.type == SDL_QUIT) {
                 quit = true;
             } else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r) {
-                //capture_audio();
+                if (!recording) {
+                    printf("start recording\n");
+                    recording = start_capture(&stream, &buff);
+                    fflush(stdout);
+                }
+            } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_r) {
+                if (recording) {
+                    printf("stop recording\n");
+                    stop_capture(stream, &buff);
+                    recording = false;
+                    fflush(stdout);
+                }
             }
         }
         float fps = frames_count / ((SDL_GetTicks() - start) / 1000.f);
@@ -154,6 +153,7 @@ int main(int argc, char *argv[])
         ++frames_count;
     }
 
+    Pa_Terminate();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

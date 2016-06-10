@@ -1,6 +1,6 @@
 PROGNAME = usdr
-CFLAGS = -Wall -I/opt/src/portaudio/include -I/opt/src/csdr -DUSE_FFTW
-LDFLAGS = -L/opt/src/portaudio/lib/.libs -L/opt/src/csdr -lportaudio -lcsdr -lfftw3f -lSDL2
+CFLAGS = -Wall -I/opt/src/portaudio/include -I/opt/src/csdr -I/opt/src/hackrf/host/libhackrf/src -DUSE_FFTW
+LDFLAGS = -L/opt/src/portaudio/lib/.libs -L/opt/src/csdr -L/opt/src/hackrf/host/build/libhackrf/src -lportaudio -lcsdr -lfftw3f -lSDL2 -lhackrf
 
 all: $(PROGNAME)
 

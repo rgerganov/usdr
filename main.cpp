@@ -1,3 +1,4 @@
+#include <hackrf.h>
 #include <portaudio.h>
 #include <stdio.h>
 #include <SDL2/SDL.h>
@@ -9,8 +10,7 @@
 #define FRAMES_PER_BUFFER (512)
 #define SAMPLE_SILENCE  (0.0f)
 
-float *audio_data;
-PaUtilRingBuffer rb_audio;
+hackrf_device *device = NULL;
 
 static int record_callback(const void *in_buffer, void *out_buffer,
                            unsigned long frames_per_buffer,
@@ -60,8 +60,8 @@ void save_to_file(buffer_t *buff)
 bool start_capture(PaStream **stream, buffer_t *buff)
 {
     PaStreamParameters inputParameters;
-    // inputParameters.device = Pa_GetDefaultInputDevice();
-    inputParameters.device = 3;
+    inputParameters.device = Pa_GetDefaultInputDevice();
+    //inputParameters.device = 3;
     inputParameters.channelCount = 1;
     inputParameters.sampleFormat = paFloat32;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
@@ -96,6 +96,64 @@ void stop_capture(PaStream *stream, buffer_t *buff)
     save_to_file(buff);
 }
 
+int rx_callback(hackrf_transfer* transfer) {
+    return 0;
+}
+
+bool init_hackrf()
+{
+    int result = hackrf_init();
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_init() failed: (%d)\n", result);
+        return false;
+    }
+    result = hackrf_open_by_serial(NULL, &device);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_open() failed: (%d)\n", result);
+        return false;
+    }
+    uint32_t sample_rate_hz = 8000000;
+    result = hackrf_set_sample_rate_manual(device, sample_rate_hz, 1);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_sample_rate_set() failed: (%d)\n", result);
+        return false;
+    }
+    uint32_t baseband_filter_bw_hz = hackrf_compute_baseband_filter_bw_round_down_lt(sample_rate_hz);
+    result = hackrf_set_baseband_filter_bandwidth(device, baseband_filter_bw_hz);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_baseband_filter_bandwidth_set() failed: (%d)\n", result);
+        return false;
+    }
+    unsigned int lna_gain=8, vga_gain=20;
+    result = hackrf_set_vga_gain(device, vga_gain);
+    result |= hackrf_set_lna_gain(device, lna_gain);
+    result |= hackrf_start_rx(device, rx_callback, NULL);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_s?() failed: (%d)\n", result);
+        return false;
+    }
+    uint64_t freq_hz = 100000000;
+    result = hackrf_set_freq(device, freq_hz);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_set_freq() failed: (%d)\n", result);
+        return false;
+    }
+    return true;
+}
+
+void close_hackrf()
+{
+    int result = hackrf_stop_rx(device);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_stop_rx() failed: (%d)\n", result);
+    }
+    result = hackrf_close(device);
+    if (result != HACKRF_SUCCESS) {
+        fprintf(stderr, "hackrf_close() failed: (%d)\n", result);
+    }
+    hackrf_exit();
+}
+
 int main(int argc, char *argv[])
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -118,6 +176,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "PaInit error: %s\n", Pa_GetErrorText(err));
         return 1;
     }
+    init_hackrf();
 
     SDL_Event e;
     bool quit = false;
@@ -134,6 +193,7 @@ int main(int argc, char *argv[])
             } else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r) {
                 if (!recording) {
                     printf("start recording\n");
+                    hackrf_stop_rx(device);
                     recording = start_capture(&stream, &buff);
                     fflush(stdout);
                 }
@@ -141,6 +201,7 @@ int main(int argc, char *argv[])
                 if (recording) {
                     printf("stop recording\n");
                     stop_capture(stream, &buff);
+                    hackrf_start_rx(device, rx_callback, NULL);
                     recording = false;
                     fflush(stdout);
                 }
@@ -152,7 +213,7 @@ int main(int argc, char *argv[])
         SDL_RenderPresent(renderer);
         ++frames_count;
     }
-
+    close_hackrf();
     Pa_Terminate();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

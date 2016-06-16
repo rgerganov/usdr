@@ -5,10 +5,8 @@
 #include "dsp.h"
 #include "pa_ringbuffer.h"
 
-#define NUM_SECONDS     (5)
 #define SAMPLE_RATE  (48000)
 #define FRAMES_PER_BUFFER (512)
-#define SAMPLE_SILENCE  (0.0f)
 
 hackrf_device *device = NULL;
 
@@ -18,55 +16,39 @@ static int record_callback(const void *in_buffer, void *out_buffer,
                            PaStreamCallbackFlags status_flags,
                            void *user_data)
 {
-    buffer_t *buff = (buffer_t*)user_data;
+    PaUtilRingBuffer *rbuf = (PaUtilRingBuffer*)user_data;
     const float *rptr = (const float*)in_buffer;
-    float *wptr = &buff->ptr[buff->ind];
-    int frames = frames_per_buffer;
-    int result = paContinue;
-    unsigned long frames_left = buff->size - buff->ind;
 
-    if(frames_left < frames_per_buffer) {
-        frames = frames_left;
-        result = paComplete;
+    unsigned long written = PaUtil_WriteRingBuffer(rbuf, rptr, frames_per_buffer);
+    if (written != frames_per_buffer) {
+        fprintf(stderr, "Audio ring buffer overflow!\n");
+        return paComplete;
     }
-
-    if(in_buffer == NULL) {
-        for(int i = 0; i < frames; i++) {
-            *wptr++ = SAMPLE_SILENCE;
-        }
-    } else {
-        for(int i = 0; i < frames; i++) {
-            *wptr++ = *rptr++;
-        }
-    }
-    buff->ind += frames;
-    return result;
+    return paContinue;
 }
 
 void save_to_file(buffer_t *buff)
 {
-    char fname[256];
-    sprintf(fname, "record-%d.raw", SDL_GetTicks());
-    FILE *fid = fopen(fname, "wb");
+    FILE *fid = fopen("record.raw", "ab");
     if (fid == NULL) {
         printf("Could not open file.");
     } else {
         fwrite(buff->ptr, sizeof(float), buff->ind, fid);
         fclose(fid);
-        printf("Wrote data to %s\n", fname);
+        printf("Wrote data to record.raw\n");
     }
 }
 
-bool start_capture(PaStream **stream, buffer_t *buff)
+bool start_capture(PaStream **stream, PaUtilRingBuffer *buff)
 {
     PaStreamParameters inputParameters;
-    inputParameters.device = Pa_GetDefaultInputDevice();
-    //inputParameters.device = 3;
+    //inputParameters.device = Pa_GetDefaultInputDevice();
+    inputParameters.device = 3;
     inputParameters.channelCount = 1;
     inputParameters.sampleFormat = paFloat32;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
     inputParameters.hostApiSpecificStreamInfo = NULL;
-    buff->ind = 0;
+    PaUtil_FlushRingBuffer(buff);
 
     PaError err = Pa_OpenStream(stream,
                                 &inputParameters,
@@ -86,14 +68,13 @@ bool start_capture(PaStream **stream, buffer_t *buff)
     return true;
 }
 
-void stop_capture(PaStream *stream, buffer_t *buff)
+void stop_capture(PaStream *stream)
 {
     PaError err = Pa_CloseStream(stream);
     if (err != paNoError) {
         fprintf(stderr, "stop_capture error: %s\n", Pa_GetErrorText(err));
         return;
     }
-    save_to_file(buff);
 }
 
 int rx_callback(hackrf_transfer* transfer) {
@@ -154,6 +135,14 @@ void close_hackrf()
     hackrf_exit();
 }
 
+void process_audio(PaUtilRingBuffer *rbuf)
+{
+    buffer_t buff(32768);
+    int32_t count = PaUtil_GetRingBufferReadAvailable(rbuf);
+    buff.ind = PaUtil_ReadRingBuffer(rbuf, buff.ptr, count);
+    save_to_file(&buff);
+}
+
 int main(int argc, char *argv[])
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -176,15 +165,22 @@ int main(int argc, char *argv[])
         fprintf(stderr, "PaInit error: %s\n", Pa_GetErrorText(err));
         return 1;
     }
-    init_hackrf();
+    //init_hackrf();
+
+    float *rb_data = new float[32768]();
+    PaUtilRingBuffer rbuf;
+    if (PaUtil_InitializeRingBuffer(&rbuf, sizeof(float), 32768, rb_data) < 0) {
+        fprintf(stderr, "Cannot init ring buffer\n");
+        return 1;
+    }
 
     SDL_Event e;
     bool quit = false;
     bool recording = false;
     PaStream *stream;
-    buffer_t buff(NUM_SECONDS * SAMPLE_RATE);
-    int frames_count = 0;
-    int start = SDL_GetTicks();
+    uint32_t frames_count = 0;
+    uint32_t start = SDL_GetTicks();
+    uint32_t last_process = 0;
 
     while (!quit) {
         while (SDL_PollEvent(&e)) {
@@ -193,27 +189,38 @@ int main(int argc, char *argv[])
             } else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r) {
                 if (!recording) {
                     printf("start recording\n");
-                    hackrf_stop_rx(device);
-                    recording = start_capture(&stream, &buff);
+                    //hackrf_stop_rx(device);
+                    recording = start_capture(&stream, &rbuf);
+                    last_process = SDL_GetTicks();
                     fflush(stdout);
                 }
             } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_r) {
                 if (recording) {
                     printf("stop recording\n");
-                    stop_capture(stream, &buff);
-                    hackrf_start_rx(device, rx_callback, NULL);
+                    stop_capture(stream);
+                    process_audio(&rbuf);
+                    //hackrf_start_rx(device, rx_callback, NULL);
                     recording = false;
                     fflush(stdout);
                 }
             }
         }
-        float fps = frames_count / ((SDL_GetTicks() - start) / 1000.f);
-        printf("fps = %.4f     \r", fps); fflush(stdout);
+        uint32_t now = SDL_GetTicks();
+        if (recording) {
+            // process audio every 300ms
+            if (now - last_process > 300) {
+                process_audio(&rbuf);
+                last_process = now;
+            }
+        }
         SDL_RenderClear(renderer);
         SDL_RenderPresent(renderer);
+        float fps = frames_count / ((SDL_GetTicks() - start) / 1000.f);
+        printf("fps = %.4f     \r", fps); fflush(stdout);
         ++frames_count;
     }
-    close_hackrf();
+    delete[] rb_data;
+    //close_hackrf();
     Pa_Terminate();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

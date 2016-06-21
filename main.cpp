@@ -4,6 +4,7 @@
 #include <SDL2/SDL.h>
 #include "dsp.h"
 #include "pa_ringbuffer.h"
+#include "fake_capture.h"
 
 #define SAMPLE_RATE  (48000)
 #define FRAMES_PER_BUFFER (512)
@@ -195,14 +196,16 @@ int main(int argc, char *argv[])
                 if (!recording) {
                     printf("start recording\n");
                     //hackrf_stop_rx(device);
-                    recording = start_capture(&stream, &rbuf);
+                    //recording = start_capture(&stream, &rbuf);
+                    recording = start_capture_fake("data/speech48k-float.raw", &rbuf);
                     last_process = SDL_GetTicks();
                     fflush(stdout);
                 }
             } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_r) {
                 if (recording) {
                     printf("stop recording\n");
-                    stop_capture(stream);
+                    //stop_capture(stream);
+                    stop_capture_fake();
                     process_audio(&rbuf);
                     //hackrf_start_rx(device, rx_callback, NULL);
                     recording = false;

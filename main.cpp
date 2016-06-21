@@ -138,6 +138,8 @@ void close_hackrf()
 
 void process_audio(PaUtilRingBuffer *rbuf)
 {
+    static BandpassFilter bp_filter(0, 0.1, 0.01);
+
     buffer_t buff1(65536*256);
     buffer_t buff2(65536*256);
 
@@ -145,7 +147,7 @@ void process_audio(PaUtilRingBuffer *rbuf)
     buff1.ind = PaUtil_ReadRingBuffer(rbuf, buff1.ptr, count);
     dsb(&buff1, &buff2);
     buff1.ind = 0;
-    bandpass_fir(&buff2, &buff1, 0, 0.1, 0.01);
+    bp_filter.work(&buff2, &buff1);
     save_to_file(&buff1);
 }
 

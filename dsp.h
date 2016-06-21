@@ -1,4 +1,5 @@
 #pragma once
+#include <libcsdr.h>
 
 struct buffer_t {
     buffer_t(int buff_size) : ind(0), size(buff_size) {
@@ -12,5 +13,18 @@ struct buffer_t {
     float *ptr;
 };
 
-void bandpass_fir(buffer_t *in, buffer_t *out, float low_cut, float high_cut, float transition_bw);
+class BandpassFilter {
+public:
+    BandpassFilter(float low_cut, float high_cut, float transition_bw);
+    void work(buffer_t *in, buffer_t *out);
+private:
+    int input_size;
+    complexf *input;
+    FFT_PLAN_T *plan_inverse_1;
+    FFT_PLAN_T *plan_inverse_2;
+    FFT_PLAN_T *plan_forward;
+    complexf *taps_fft;
+    int overlap_length;
+};
+
 void dsb(buffer_t *in, buffer_t *out);

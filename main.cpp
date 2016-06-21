@@ -137,10 +137,15 @@ void close_hackrf()
 
 void process_audio(PaUtilRingBuffer *rbuf)
 {
-    buffer_t buff(32768);
+    buffer_t buff1(65536*256);
+    buffer_t buff2(65536*256);
+
     int32_t count = PaUtil_GetRingBufferReadAvailable(rbuf);
-    buff.ind = PaUtil_ReadRingBuffer(rbuf, buff.ptr, count);
-    save_to_file(&buff);
+    buff1.ind = PaUtil_ReadRingBuffer(rbuf, buff1.ptr, count);
+    dsb(&buff1, &buff2);
+    buff1.ind = 0;
+    bandpass_fir(&buff2, &buff1, 0, 0.1, 0.01);
+    save_to_file(&buff1);
 }
 
 int main(int argc, char *argv[])

@@ -13,3 +13,4 @@ struct buffer_t {
 };
 
 void bandpass_fir(buffer_t *in, buffer_t *out, float low_cut, float high_cut, float transition_bw);
+void dsb(buffer_t *in, buffer_t *out);

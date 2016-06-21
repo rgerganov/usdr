@@ -43,15 +43,24 @@ void bandpass_fir(buffer_t *in, buffer_t *out, float low_cut, float high_cut, fl
     firdes_bandpass_c(taps, taps_length, low_cut, high_cut, window);
     fft_execute(plan_taps);
 
-    for(int odd=0; in->ind + input_size < in->size; odd=!odd) //the processing loop
+    for(int odd=0, ind=0; ind + input_size*2 < in->ind; odd=!odd) //the processing loop
     {
-        memcpy(input, in->ptr, input_size * sizeof(complexf));
-        in->ptr += input_size * 2;
+        memcpy(input, in->ptr + ind, input_size * sizeof(complexf));
+        ind += input_size * 2;
         FFT_PLAN_T* plan_inverse = (odd)?plan_inverse_2:plan_inverse_1;
         FFT_PLAN_T* plan_contains_last_overlap = (odd)?plan_inverse_1:plan_inverse_2; //the other
         complexf* last_overlap = (complexf*)plan_contains_last_overlap->output + input_size; //+ fft_size - overlap_length;
         apply_fir_fft_cc (plan_forward, plan_inverse, taps_fft, last_overlap, overlap_length);
-        memcpy(out->ptr, plan_inverse->output, input_size * sizeof(complexf));
-        out->ptr += input_size * 2;
+        memcpy(out->ptr + out->ind, plan_inverse->output, input_size * sizeof(complexf));
+        out->ind += input_size * 2;
     }
+}
+
+void dsb(buffer_t *in, buffer_t *out)
+{
+    for (int i = 0 ; i < in->ind ; i++) {
+        out->ptr[i * 2] = in->ptr[i];
+        out->ptr[i * 2 + 1] = 0;
+    }
+    out->ind = in->ind * 2;
 }

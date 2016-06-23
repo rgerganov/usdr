@@ -31,11 +31,11 @@ bool start_capture_fake(const char *fname, PaUtilRingBuffer *buff)
         fprintf(stderr, "cannot open %s\n", fname);
         return false;
     }
-    running = true;
     if (pthread_create(&th, NULL, th_callback, buff)) {
         fprintf(stderr, "cannot start thread\n");
         return false;
     }
+    running = true;
     return true;
 }
 

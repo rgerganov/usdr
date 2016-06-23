@@ -1,9 +1,15 @@
 #include <malloc.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <pthread.h>
 extern "C" {
 	#include <libcsdr.h>
 }
 #include "dsp.h"
+
+static pthread_t dsp_tx_thread;
+static volatile bool dsp_tx_running;
 
 BandpassFilter::BandpassFilter(float low_cut, float high_cut, float transition_bw)
 {
@@ -46,7 +52,18 @@ BandpassFilter::BandpassFilter(float low_cut, float high_cut, float transition_b
 
 void BandpassFilter::work(buffer_t *in, buffer_t *out)
 {
-    for(int odd=0, ind=0; ind + input_size*2 < in->ind; odd=!odd) //the processing loop
+    static float buff[32768];
+    static int buff_ind = 0;
+    static int odd = 0;
+    int ind = 0;
+
+    if (buff_ind > 0) {
+        memmove(in->ptr + buff_ind, in->ptr, in->ind * sizeof(float));
+        memcpy(in->ptr, buff, buff_ind * sizeof(float));
+        in->ind += buff_ind;
+        buff_ind = 0;
+    }
+    for(; ind + input_size*2 < in->ind; odd=!odd) //the processing loop
     {
         memcpy(input, in->ptr + ind, input_size * sizeof(complexf));
         ind += input_size * 2;
@@ -57,13 +74,73 @@ void BandpassFilter::work(buffer_t *in, buffer_t *out)
         memcpy(out->ptr + out->ind, plan_inverse->output, input_size * sizeof(complexf));
         out->ind += input_size * 2;
     }
+    if (ind < in->ind) {
+        buff_ind = in->ind - ind;
+        memcpy(buff, in->ptr + ind, buff_ind * sizeof(float));
+    }
 }
 
-void dsb(buffer_t *in, buffer_t *out)
+static void dsb(buffer_t *in, buffer_t *out)
 {
     for (int i = 0 ; i < in->ind ; i++) {
         out->ptr[i * 2] = in->ptr[i];
         out->ptr[i * 2 + 1] = 0;
     }
     out->ind = in->ind * 2;
+}
+
+static void save_to_file(const char *fname, buffer_t *buff)
+{
+    FILE *fid = fopen(fname, "ab");
+    if (fid == NULL) {
+        printf("Could not open file.");
+    } else {
+        fwrite(buff->ptr, sizeof(float), buff->ind, fid);
+        fclose(fid);
+        printf("Wrote data to %s\n", fname);
+    }
+}
+
+static buffer_t buff1(4 * 1024 * 1024);
+static buffer_t buff2(4 * 1024 * 1024);
+
+static void *dsp_tx(void *arg)
+{
+    PaUtilRingBuffer *ring_buff = (PaUtilRingBuffer*) arg;
+    BandpassFilter bp_filter(0, 0.1, 0.01);
+    while (dsp_tx_running) {
+        usleep(300 * 1000); // sleep for 300ms
+        if (!dsp_tx_running) {
+            break;
+        }
+        int32_t count = PaUtil_GetRingBufferReadAvailable(ring_buff);
+        buff1.ind = PaUtil_ReadRingBuffer(ring_buff, buff1.ptr, count);
+        dsb(&buff1, &buff2);
+        buff1.ind = 0;
+        bp_filter.work(&buff2, &buff1);
+        for (int i = 0 ; i < buff1.ind ; i++) {
+            buff1.ptr[i] *= 2.0;
+        }
+        save_to_file("record.cfile", &buff1);
+    }
+    return NULL;
+}
+
+bool start_dsp_tx(PaUtilRingBuffer *buff)
+{
+    if (pthread_create(&dsp_tx_thread, NULL, dsp_tx, buff)) {
+        fprintf(stderr, "start_dsp_tx: cannot start thread\n");
+        return false;
+    }
+    dsp_tx_running = true;
+    return true;
+}
+
+
+void stop_dsp_tx()
+{
+    dsp_tx_running = false;
+    if (pthread_join(dsp_tx_thread, NULL)) {
+        fprintf(stderr, "stop_dsp_tx: error joining thread\n");
+    }
 }

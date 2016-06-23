@@ -1,5 +1,6 @@
 #pragma once
 #include <libcsdr.h>
+#include "pa_ringbuffer.h"
 
 struct buffer_t {
     buffer_t(int buff_size) : ind(0), size(buff_size) {
@@ -27,4 +28,5 @@ private:
     int overlap_length;
 };
 
-void dsb(buffer_t *in, buffer_t *out);
+bool start_dsp_tx(PaUtilRingBuffer *buff);
+void stop_dsp_tx();

@@ -28,18 +28,6 @@ static int record_callback(const void *in_buffer, void *out_buffer,
     return paContinue;
 }
 
-void save_to_file(buffer_t *buff)
-{
-    FILE *fid = fopen("record.raw", "ab");
-    if (fid == NULL) {
-        printf("Could not open file.");
-    } else {
-        fwrite(buff->ptr, sizeof(float), buff->ind, fid);
-        fclose(fid);
-        printf("Wrote data to record.raw\n");
-    }
-}
-
 bool start_capture(PaStream **stream, PaUtilRingBuffer *buff)
 {
     PaStreamParameters inputParameters;
@@ -136,21 +124,6 @@ void close_hackrf()
     hackrf_exit();
 }
 
-void process_audio(PaUtilRingBuffer *rbuf)
-{
-    static BandpassFilter bp_filter(0, 0.1, 0.01);
-
-    buffer_t buff1(65536*256);
-    buffer_t buff2(65536*256);
-
-    int32_t count = PaUtil_GetRingBufferReadAvailable(rbuf);
-    buff1.ind = PaUtil_ReadRingBuffer(rbuf, buff1.ptr, count);
-    dsb(&buff1, &buff2);
-    buff1.ind = 0;
-    bp_filter.work(&buff2, &buff1);
-    save_to_file(&buff1);
-}
-
 int main(int argc, char *argv[])
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -188,7 +161,6 @@ int main(int argc, char *argv[])
     PaStream *stream;
     uint32_t frames_count = 0;
     uint32_t start = SDL_GetTicks();
-    uint32_t last_process = 0;
 
     while (!quit) {
         while (SDL_PollEvent(&e)) {
@@ -200,7 +172,7 @@ int main(int argc, char *argv[])
                     //hackrf_stop_rx(device);
                     //recording = start_capture(&stream, &rbuf);
                     recording = start_capture_fake("data/speech48k-float.raw", &rbuf);
-                    last_process = SDL_GetTicks();
+                    recording = recording && start_dsp_tx(&rbuf);
                     fflush(stdout);
                 }
             } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_r) {
@@ -208,19 +180,11 @@ int main(int argc, char *argv[])
                     printf("stop recording\n");
                     //stop_capture(stream);
                     stop_capture_fake();
-                    process_audio(&rbuf);
+                    stop_dsp_tx();
                     //hackrf_start_rx(device, rx_callback, NULL);
                     recording = false;
                     fflush(stdout);
                 }
-            }
-        }
-        uint32_t now = SDL_GetTicks();
-        if (recording) {
-            // process audio every 300ms
-            if (now - last_process > 300) {
-                process_audio(&rbuf);
-                last_process = now;
             }
         }
         SDL_RenderClear(renderer);

@@ -18,7 +18,11 @@ class BandpassFilter {
 public:
     BandpassFilter(float low_cut, float high_cut, float transition_bw);
     void work(buffer_t *in, buffer_t *out);
+    ~BandpassFilter();
+
 private:
+    int odd;
+    buffer_t *leftover;
     int input_size;
     complexf *input;
     FFT_PLAN_T *plan_inverse_1;

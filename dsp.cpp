@@ -48,20 +48,27 @@ BandpassFilter::BandpassFilter(float low_cut, float high_cut, float transition_b
     fprintf(stderr,"bandpass_fir_fft_cc: filter initialized, low_cut = %g, high_cut = %g\n",low_cut,high_cut);
     firdes_bandpass_c(taps, taps_length, low_cut, high_cut, window);
     fft_execute(plan_taps);
+
+    // initialize the state of the work() method
+    odd = 0;
+    leftover = new buffer_t(32768);
+}
+
+BandpassFilter::~BandpassFilter()
+{
+    delete leftover;
+    // TODO deallocate FFT stuff
 }
 
 void BandpassFilter::work(buffer_t *in, buffer_t *out)
 {
-    static float buff[32768];
-    static int buff_ind = 0;
-    static int odd = 0;
     int ind = 0;
 
-    if (buff_ind > 0) {
-        memmove(in->ptr + buff_ind, in->ptr, in->ind * sizeof(float));
-        memcpy(in->ptr, buff, buff_ind * sizeof(float));
-        in->ind += buff_ind;
-        buff_ind = 0;
+    if (leftover->ind > 0) {
+        memmove(in->ptr + leftover->ind, in->ptr, in->ind * sizeof(float));
+        memcpy(in->ptr, leftover->ptr, leftover->ind * sizeof(float));
+        in->ind += leftover->ind;
+        leftover->ind = 0;
     }
     for(; ind + input_size*2 < in->ind; odd=!odd) //the processing loop
     {
@@ -75,8 +82,8 @@ void BandpassFilter::work(buffer_t *in, buffer_t *out)
         out->ind += input_size * 2;
     }
     if (ind < in->ind) {
-        buff_ind = in->ind - ind;
-        memcpy(buff, in->ptr + ind, buff_ind * sizeof(float));
+        leftover->ind = in->ind - ind;
+        memcpy(leftover->ptr, in->ptr + ind, leftover->ind * sizeof(float));
     }
 }
 
@@ -101,6 +108,7 @@ static void save_to_file(const char *fname, buffer_t *buff)
     }
 }
 
+// reusable buffers
 static buffer_t buff1(4 * 1024 * 1024);
 static buffer_t buff2(4 * 1024 * 1024);
 

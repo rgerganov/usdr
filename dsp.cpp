@@ -11,6 +11,13 @@ extern "C" {
 static pthread_t dsp_tx_thread;
 static volatile bool dsp_tx_running;
 
+#define TX_BUF_SIZE 4*1024*1024
+
+// reusable buffers
+static buffer_t buff1(TX_BUF_SIZE);
+static buffer_t buff2(TX_BUF_SIZE);
+
+
 BandpassFilter::BandpassFilter(float low_cut, float high_cut, float transition_bw)
 {
     window_t window = WINDOW_DEFAULT;
@@ -87,6 +94,41 @@ void BandpassFilter::work(buffer_t *in, buffer_t *out)
     }
 }
 
+RationalResampler::RationalResampler(int inter, int decim)
+{
+    interpolation = inter;
+    decimation = decim;
+    float transition_bw=0.05;
+    window_t window = WINDOW_DEFAULT;
+
+    taps_length = firdes_filter_len(transition_bw);
+    taps = (float*)malloc(sizeof(float)*taps_length);
+    rational_resampler_get_lowpass_f(taps, taps_length, interpolation, decimation, window);
+    d.input_processed = 0;
+    d.last_taps_delay = 0;
+    d.output_size = 0;
+}
+
+RationalResampler::~RationalResampler()
+{
+    // TODO
+}
+
+void RationalResampler::work(buffer_t *in, buffer_t *out)
+{
+    // TODO check ranges
+    int output_size = in->ind*interpolation / decimation;
+    if (output_size > out->size) {
+        fprintf(stderr, "[resampler] buffer overflow!\n");
+        return;
+    }
+    d = rational_resampler_ff(in->ptr, out->ptr, in->ind, interpolation, decimation, taps, taps_length, d.last_taps_delay);
+    out->ind = output_size;
+    if (d.input_processed != in->ind) {
+        fprintf(stderr, ">> [resampler] processed: %d total: %d\n", d.input_processed, in->ind);
+    }
+}
+
 static void dsb(buffer_t *in, buffer_t *out)
 {
     for (int i = 0 ; i < in->ind ; i++) {
@@ -108,14 +150,11 @@ static void save_to_file(const char *fname, buffer_t *buff)
     }
 }
 
-// reusable buffers
-static buffer_t buff1(4 * 1024 * 1024);
-static buffer_t buff2(4 * 1024 * 1024);
-
 static void *dsp_tx(void *arg)
 {
     PaUtilRingBuffer *ring_buff = (PaUtilRingBuffer*) arg;
     BandpassFilter bp_filter(0, 0.1, 0.01);
+    RationalResampler resampler(50, 1);
     while (dsp_tx_running) {
         usleep(300 * 1000); // sleep for 300ms
         if (!dsp_tx_running) {
@@ -129,7 +168,8 @@ static void *dsp_tx(void *arg)
         for (int i = 0 ; i < buff1.ind ; i++) {
             buff1.ptr[i] *= 2.0;
         }
-        save_to_file("record.cfile", &buff1);
+        resampler.work(&buff1, &buff2);
+        save_to_file("record.cfile", &buff2);
     }
     return NULL;
 }
@@ -143,7 +183,6 @@ bool start_dsp_tx(PaUtilRingBuffer *buff)
     dsp_tx_running = true;
     return true;
 }
-
 
 void stop_dsp_tx()
 {

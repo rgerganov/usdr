@@ -32,5 +32,19 @@ private:
     int overlap_length;
 };
 
+class RationalResampler {
+public:
+    RationalResampler(int inter, int decim);
+    void work(buffer_t *in, buffer_t *out);
+    ~RationalResampler();
+
+private:
+    int interpolation;
+    int decimation;
+    int taps_length;
+    float *taps;
+    rational_resampler_ff_t d;
+};
+
 bool start_dsp_tx(PaUtilRingBuffer *buff);
 void stop_dsp_tx();

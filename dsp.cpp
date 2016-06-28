@@ -150,9 +150,16 @@ static void save_to_file(const char *fname, buffer_t *buff)
     }
 }
 
+struct dsp_tx_params {
+    PaUtilRingBuffer *rbuf_low;
+    PaUtilRingBuffer *rbuf_high;
+};
+
 static void *dsp_tx(void *arg)
 {
-    PaUtilRingBuffer *ring_buff = (PaUtilRingBuffer*) arg;
+    dsp_tx_params *params = (dsp_tx_params*)arg;
+    PaUtilRingBuffer *rbuf_low = params->rbuf_low;
+    PaUtilRingBuffer *rbuf_high = params->rbuf_high;
     BandpassFilter bp_filter(0, 0.1, 0.01);
     RationalResampler resampler(50, 1);
     while (dsp_tx_running) {
@@ -160,8 +167,8 @@ static void *dsp_tx(void *arg)
         if (!dsp_tx_running) {
             break;
         }
-        int32_t count = PaUtil_GetRingBufferReadAvailable(ring_buff);
-        buff1.ind = PaUtil_ReadRingBuffer(ring_buff, buff1.ptr, count);
+        int32_t count = PaUtil_GetRingBufferReadAvailable(rbuf_low);
+        buff1.ind = PaUtil_ReadRingBuffer(rbuf_low, buff1.ptr, count);
         dsb(&buff1, &buff2);
         buff1.ind = 0;
         bp_filter.work(&buff2, &buff1);
@@ -169,14 +176,20 @@ static void *dsp_tx(void *arg)
             buff1.ptr[i] *= 2.0;
         }
         resampler.work(&buff1, &buff2);
-        save_to_file("record.cfile", &buff2);
+        int32_t written = PaUtil_WriteRingBuffer(rbuf_high, buff2.ptr, buff2.ind);
+        if (written < buff2.ind) {
+            fprintf(stderr, "[dsp_tx] rbuf_high overflow!\n");
+        }
     }
     return NULL;
 }
 
-bool start_dsp_tx(PaUtilRingBuffer *buff)
+bool start_dsp_tx(PaUtilRingBuffer *rbuf_low, PaUtilRingBuffer *rbuf_high)
 {
-    if (pthread_create(&dsp_tx_thread, NULL, dsp_tx, buff)) {
+    dsp_tx_params params;
+    params.rbuf_low = rbuf_low;
+    params.rbuf_high = rbuf_high;
+    if (pthread_create(&dsp_tx_thread, NULL, dsp_tx, &params)) {
         fprintf(stderr, "start_dsp_tx: cannot start thread\n");
         return false;
     }

@@ -46,5 +46,5 @@ private:
     rational_resampler_ff_t d;
 };
 
-bool start_dsp_tx(PaUtilRingBuffer *buff);
+bool start_dsp_tx(PaUtilRingBuffer *rbuf_low, PaUtilRingBuffer *rbuf_high);
 void stop_dsp_tx();

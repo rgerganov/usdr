@@ -149,9 +149,13 @@ int main(int argc, char *argv[])
     //init_hackrf();
 
     float *rb_data = new float[32768]();
-    PaUtilRingBuffer rbuf;
-    if (PaUtil_InitializeRingBuffer(&rbuf, sizeof(float), 32768, rb_data) < 0) {
-        fprintf(stderr, "Cannot init ring buffer\n");
+    PaUtilRingBuffer rbuf_low, rbuf_high;
+    if (PaUtil_InitializeRingBuffer(&rbuf_low, sizeof(float), 32768, rb_data) < 0) {
+        fprintf(stderr, "Cannot init rbuf_low\n");
+        return 1;
+    }
+    if (PaUtil_InitializeRingBuffer(&rbuf_high, sizeof(float), 32768 * 100, rb_data) < 0) {
+        fprintf(stderr, "Cannot init rbuf_high\n");
         return 1;
     }
 
@@ -171,8 +175,8 @@ int main(int argc, char *argv[])
                     printf("start recording\n");
                     //hackrf_stop_rx(device);
                     //recording = start_capture(&stream, &rbuf);
-                    recording = start_capture_fake("data/speech48k-float.raw", &rbuf);
-                    recording = recording && start_dsp_tx(&rbuf);
+                    recording = start_capture_fake("data/speech48k-float.raw", &rbuf_low);
+                    recording = recording && start_dsp_tx(&rbuf_low, &rbuf_high);
                     fflush(stdout);
                 }
             } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_r) {

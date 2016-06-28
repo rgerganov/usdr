@@ -8,7 +8,13 @@ extern "C" {
 }
 #include "dsp.h"
 
+struct dsp_tx_params {
+    PaUtilRingBuffer *rbuf_low;
+    PaUtilRingBuffer *rbuf_high;
+};
+
 static pthread_t dsp_tx_thread;
+static dsp_tx_params params;
 static volatile bool dsp_tx_running;
 
 #define TX_BUF_SIZE 4*1024*1024
@@ -138,23 +144,6 @@ static void dsb(buffer_t *in, buffer_t *out)
     out->ind = in->ind * 2;
 }
 
-static void save_to_file(const char *fname, buffer_t *buff)
-{
-    FILE *fid = fopen(fname, "ab");
-    if (fid == NULL) {
-        printf("Could not open file.");
-    } else {
-        fwrite(buff->ptr, sizeof(float), buff->ind, fid);
-        fclose(fid);
-        printf("Wrote data to %s\n", fname);
-    }
-}
-
-struct dsp_tx_params {
-    PaUtilRingBuffer *rbuf_low;
-    PaUtilRingBuffer *rbuf_high;
-};
-
 static void *dsp_tx(void *arg)
 {
     dsp_tx_params *params = (dsp_tx_params*)arg;
@@ -163,10 +152,6 @@ static void *dsp_tx(void *arg)
     BandpassFilter bp_filter(0, 0.1, 0.01);
     RationalResampler resampler(50, 1);
     while (dsp_tx_running) {
-        usleep(300 * 1000); // sleep for 300ms
-        if (!dsp_tx_running) {
-            break;
-        }
         int32_t count = PaUtil_GetRingBufferReadAvailable(rbuf_low);
         buff1.ind = PaUtil_ReadRingBuffer(rbuf_low, buff1.ptr, count);
         dsb(&buff1, &buff2);
@@ -180,13 +165,13 @@ static void *dsp_tx(void *arg)
         if (written < buff2.ind) {
             fprintf(stderr, "[dsp_tx] rbuf_high overflow!\n");
         }
+        usleep(300 * 1000); // sleep for 300ms
     }
     return NULL;
 }
 
 bool start_dsp_tx(PaUtilRingBuffer *rbuf_low, PaUtilRingBuffer *rbuf_high)
 {
-    dsp_tx_params params;
     params.rbuf_low = rbuf_low;
     params.rbuf_high = rbuf_high;
     if (pthread_create(&dsp_tx_thread, NULL, dsp_tx, &params)) {

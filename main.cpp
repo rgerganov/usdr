@@ -1,6 +1,7 @@
 #include <hackrf.h>
 #include <portaudio.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <SDL2/SDL.h>
 #include "dsp.h"
 #include "pa_ringbuffer.h"
@@ -8,6 +9,9 @@
 
 #define SAMPLE_RATE  (48000)
 #define FRAMES_PER_BUFFER (512)
+
+#define LOW_BUF_SZIE (32768)
+#define HIGH_BUF_SZIE (2*1024*1024)
 
 hackrf_device *device = NULL;
 
@@ -148,13 +152,15 @@ int main(int argc, char *argv[])
     }
     //init_hackrf();
 
-    float *rb_data = new float[32768]();
-    PaUtilRingBuffer rbuf_low, rbuf_high;
-    if (PaUtil_InitializeRingBuffer(&rbuf_low, sizeof(float), 32768, rb_data) < 0) {
+    float *rb_low_data = new float[LOW_BUF_SZIE]();
+    PaUtilRingBuffer rbuf_low;
+    if (PaUtil_InitializeRingBuffer(&rbuf_low, sizeof(float), LOW_BUF_SZIE, rb_low_data) < 0) {
         fprintf(stderr, "Cannot init rbuf_low\n");
         return 1;
     }
-    if (PaUtil_InitializeRingBuffer(&rbuf_high, sizeof(float), 32768 * 100, rb_data) < 0) {
+    float *rb_high_data = new float[HIGH_BUF_SZIE]();
+    PaUtilRingBuffer rbuf_high;
+    if (PaUtil_InitializeRingBuffer(&rbuf_high, sizeof(float), HIGH_BUF_SZIE, rb_high_data) < 0) {
         fprintf(stderr, "Cannot init rbuf_high\n");
         return 1;
     }
@@ -175,8 +181,10 @@ int main(int argc, char *argv[])
                     printf("start recording\n");
                     //hackrf_stop_rx(device);
                     //recording = start_capture(&stream, &rbuf);
-                    recording = start_capture_fake("data/speech48k-float.raw", &rbuf_low);
+                    recording = start_capture_fake(&rbuf_low);
+                    usleep(300 * 1000);
                     recording = recording && start_dsp_tx(&rbuf_low, &rbuf_high);
+                    recording = recording && start_tx_fake(&rbuf_high);
                     fflush(stdout);
                 }
             } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_r) {
@@ -185,6 +193,7 @@ int main(int argc, char *argv[])
                     //stop_capture(stream);
                     stop_capture_fake();
                     stop_dsp_tx();
+                    stop_tx_fake();
                     //hackrf_start_rx(device, rx_callback, NULL);
                     recording = false;
                     fflush(stdout);
@@ -197,7 +206,8 @@ int main(int argc, char *argv[])
         printf("fps = %.4f     \r", fps); fflush(stdout);
         ++frames_count;
     }
-    delete[] rb_data;
+    delete[] rb_low_data;
+    delete[] rb_high_data;
     //close_hackrf();
     Pa_Terminate();
     SDL_DestroyRenderer(renderer);

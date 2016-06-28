@@ -4,8 +4,8 @@ LDFLAGS = -L/opt/src/portaudio/lib/.libs -L/opt/src/csdr -L/opt/src/hackrf/host/
 
 all: $(PROGNAME)
 
-$(PROGNAME): main.cpp dsp.cpp dsp.h pa_ringbuffer.cpp fake_capture.cpp pa_ringbuffer.h pa_memorybarrier.h
-	$(CXX) main.cpp dsp.cpp pa_ringbuffer.cpp fake_capture.cpp -o $(PROGNAME) $(CFLAGS) $(LDFLAGS)
+$(PROGNAME): main.cpp dsp.cpp dsp.h pa_ringbuffer.cpp fake.cpp pa_ringbuffer.h pa_memorybarrier.h
+	$(CXX) main.cpp dsp.cpp pa_ringbuffer.cpp fake.cpp -o $(PROGNAME) $(CFLAGS) $(LDFLAGS)
 
 clean:
 	rm -f $(PROGNAME) *.o

@@ -4,7 +4,7 @@
 #include <SDL2/SDL.h>
 #include "dsp.h"
 #include "pa_ringbuffer.h"
-#include "fake_capture.h"
+#include "fake.h"
 
 #define SAMPLE_RATE  (48000)
 #define FRAMES_PER_BUFFER (512)

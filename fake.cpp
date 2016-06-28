@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "fake_capture.h"
+#include "fake.h"
 #include "pa_ringbuffer.h"
 
 static FILE *f;
